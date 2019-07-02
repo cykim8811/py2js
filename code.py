@@ -1,14 +1,7 @@
 
 
-a=0
-b=[]
-c="hello world"
-
-d,e,f=1,2,3
-
-e,f=f,e#buggy
-
-e,h,i=range(3)
+a,b=1,2
+b,c,d=range(3)
 
 temp="whatever"#global variable definition
 
@@ -20,7 +13,7 @@ def hear():
     global temp
     temp="this"#global variable
     print(temp)
-
-l=[x*2-1 for x in range(100)]#list comprehension
-
-muldim=[[x for x in range(y)] for y in range(10)]#2D list comprehension
+#list comprehension
+l=[x*2-1 for x in range(100)]
+#2D list comprehension
+muldim=[[x for x in range(y)] for y in range(10)]

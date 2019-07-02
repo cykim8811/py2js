@@ -1,15 +1,9 @@
-var a = 0;
-var b = [];
-var c = "hello world";
-var d = 1;
-var e = 2;
-var f = 3;
-e = f;
-f = e;
+var a = 1;
+var b = 2;
 var _tupassgn_0 = range(3);
-e = _tupassgn_0[0];
-var h = _tupassgn_0[1];
-var i = _tupassgn_0[2];
+b = _tupassgn_0[0];
+var c = _tupassgn_0[1];
+var d = _tupassgn_0[2];
 var temp = "whatever";
 function say (string) { 
     var temp = "I say ";

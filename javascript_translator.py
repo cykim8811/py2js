@@ -900,12 +900,15 @@ def parse_code():
     main = Code("main")
     i = 0
     while i < len(code_str):
-        pv, ii = parse_string(i)
-        if pv == "\n":
-            i = ii
-        else:
-            break
-    while i < len(code_str):
+        while i < len(code_str):
+            pv, ii = parse_string(i)
+            if pv=="#":
+                while i<len(code_str) and code_str[i]!="\n":
+                    i+=1
+            if pv == "\n":
+                i = ii
+            else:
+                break
         ps, i = parse_statement(i, 0)
         if ps is False:
             k = ""
