@@ -1,7 +1,9 @@
 code_str = ""
 char_list = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-def show_error(_str):
+def show_error(_str, ln=None):
+    if ln != None:
+        print("[ Error at line {} ]".format(code_str.count("\n", 0, ln) + 1))
     print(_str)
     quit()
 
@@ -11,17 +13,20 @@ class Code:
         self.line = []
         self.var_list = []
         self.temp_var = 0
+        self.structure = "main"
+        self.class_list = []
     def tostr(self):
         _ret = ""
         for ln in self.line:
             _ret += "\n" + ln.tostr(0) + (";" if type(ln) is Value else "")
         return _ret
     def tojs(self):
-        tool=Structure("__main__",[])
+        tool = Structure("__main__", [])
         self.temp_var = 0
-        tool.line=self.line
-        tool.tojs(self,self)
-        self.line=tool.line
+        tool.line = self.line
+        tool.tojs(self, self)
+        self.line = tool.line
+
 class Value:
     op_name = {
         "="     : "assign",
@@ -86,13 +91,17 @@ class Value:
             return " " * 4 * indent + "{}[{}]".format(self.param[0].tostr(0), self.param[1].tostr(0))
         elif self.op in "=,+=,-=,*=,/=,+,-,*,/,>,<,>=,<,==,!=".split(","):
             return " " * 4 * indent + "{} {} {}".format(self.param[0].tostr(0), self.op, self.param[1].tostr(0))
+        elif self.op == "define":
+            return " " * 4 * indent + "var {} = {}".format(self.param[0].tostr(0), self.param[1].tostr(0))
         elif self.op == "return_V":
             return " " * 4 * indent + "return {}".format(self.param[0].tostr(0))
         elif self.op == "call":
             return " " * 4 * indent + "{}{}".format(self.param[0].tostr(0),
                                                     Value("tuple", self.param[1].param).tostr(0))
+        elif self.op == "new":
+            return " " * 4 * indent + "new {}{}".format(self.param[0].tostr(0),
+                                                        Value("tuple", self.param[1].param).tostr(0))
         else:
-            print(self.op)
             return " " * 4 * indent + (Value.op_name[self.op] if self.op in Value.op_name else self.op) + "({})".format(
                 ",".join([x.tostr(0) if type(x) in [Value, Structure] else str(x) for x in self.param]))
     def get_listcomp(self, parent, code):
@@ -106,22 +115,64 @@ class Value:
                 else:
                     _ret += pr.get_listcomp(parent, code)
         return _ret
+    def ispyformat(self, _str):
+        _format = _str.split()
+        if self.op != _format[1]: return False
+        if type(self.param[0]) is Value and type(self.param[1]) is Value:
+            return self.param[0].op == _format[0] and self.param[1].op == _format[2]
+        else:
+            return False
     def tojs(self, parent, code):
-        if self.op=="call" and self.param[0].op=="attribute" and type(self.param[0].param[1]) is str:
-            if self.param[0].param[1]=="append": self.param[0].param[1]="push"
-        if self.op=="call" and self.param[0].op=="var":
-            if self.param[0].param[0]=="print":
-                self.param[0]=Value("attribute",[Value("var",["console"]),"log"])
-        if self.op=="global_V":
-            parent.var_list.append(self.param[0].tostr(0))
+        self.param = [x.tojs(parent, code)[0] if type(x) is Value else x for x in self.param]
+        if self.op == "var":
+            if self.param[0] == "False": self.param[0] = "false"
+            if self.param[0] == "True": self.param[0] = "true"
+        if self.ispyformat("list * number"):
+            if len(self.param[0].param) == 1:
+                return [Value("call",[Value("attribute",[Value("new",[Value("var",["Array"]),Value("list",[Value("number",[self.param[1].param[0]])])]),"fill"]),Value("list",[self.param[0].param[0]])])]
+        if self.op == "call" and self.param[0].op == "attribute" and type(self.param[0].param[1]) is str:
+            if self.param[0].param[1] == "append": self.param[0].param[1] = "push"
+        if self.op == "call" and self.param[0].op == "var":
+            if self.param[0].param[0] == "print":
+                self.param[0] = Value("attribute", [Value("var", ["console"]), "log"])
+            elif self.param[0].param[0] in code.class_list:
+                self.op = "new"
+                return [self]
+        if self.op == "global_V":
+            if self.param[0].op == "var":
+                parent.var_list.append(self.param[0].tostr(0))
+            elif self.param[0].op in ["list", "tuple"]:
+                for glob in self.param[0].param:
+                    parent.var_list.append(glob.tostr(0))
             return []
-        if self.op=="=":
-            if self.param[0].op=="tuple":
-                if self.param[1].op in ["tuple","list"]:
-                    if len(self.param[0].param)!=len(self.param[1].param):
-                        show_error("")
-                    _ret=[]
-                    #for all left hand side to right hand side
+        if self.op == "=":
+            if self.param[0].op == "tuple":
+                if self.param[1].op in ["tuple", "list"]:
+                    if len(self.param[0].param) != len(self.param[1].param):
+                        show_error("Not equal arguments")
+                    return [Value("=", [self.param[0].param[x], self.param[1].param[x]]).tojs(parent, code)[0] for x in
+                            range(len(self.param[0].param))]
+                else:
+                    _ret = []
+                    _ret.append(
+                        Value("=", [Value("var", ["_tupassgn_{}".format(code.temp_var)]), self.param[1]]).tojs(parent,
+                                                                                                               code)[0])
+                    for lhi, lh in enumerate(self.param[0].param):
+                        _ret.append(Value("=", [lh, Value("indexing", [
+                            Value("var", ["_tupassgn_{}".format(code.temp_var)]),
+                            Value("number", [str(lhi)])])]).tojs(parent, code)[0])
+                    code.temp_var += 1
+                    return _ret
+            else:
+                if self.param[0].op == "attribute" and self.param[0].param[0].tostr(0) == "self":
+                    self.param[0].param[0].param[0] = "this"
+                    return [self]
+                if self.param[0].tostr(0) in parent.var_list:
+                    return [self]
+                else:
+                    self.op = "define"
+                    parent.var_list.append(self.param[0].tostr(0))
+                    return [self]
         return [self]
 
 class Structure:
@@ -135,13 +186,16 @@ class Structure:
         i = 0
         structure = self.structure
 
-        preassign=False
+        preassign = False
 
-
-        if structure == "for A in V :" and type(self.param[1]) is Value and self.param[1].op=="call" and self.param[1].param[0].tostr(0)=="range":
-            if len(self.param[1].param[1].param)==1:
-                preassign=True
-                _str += ("for (var A=0; A < "+self.param[1].param[1].tostr(0)[1:-1]+"; A++){").replace("A", self.param[0].tostr(0)[1:-1])
+        if structure == "for A in V :" and type(self.param[1]) is Value and self.param[1].op == "call" and \
+                self.param[1].param[0].tostr(0) == "range":
+            if len(self.param[1].param[1].param) == 1:
+                preassign = True
+                _str += ("for (var A=0; A < " + self.param[1].param[1].tostr(0)[1:-1] + "; A++){").replace("A",
+                                                                                                           self.param[
+                                                                                                               0].tostr(
+                                                                                                               0)[1:-1])
 
         if structure == "if W :": structure = "if ( W ) {"
         if structure == "elif W :": structure = "else if ( W ) {"
@@ -163,7 +217,6 @@ class Structure:
                     _str += self.param[i].tostr(0) + " "
                     i += 1
                 elif strct in "A":
-                    print(self.param[i].tostr(0))
                     _str += self.param[i].tostr(0)[1:-1] + " "
                     i += 1
                 else:
@@ -174,11 +227,18 @@ class Structure:
         _ret += "\n" + " " * 4 * indent + "}"
         return _ret
     def tojs(self, parent, code):
-        self.var_list=[]
+        if self.structure.split()[0] in "class,def".split(","):
+            var_owner = self
+            parent.var_list.append(self.param[0])
+            if self.structure.split()[0] == "class":
+                code.class_list.append(self.param[0])
+        else:
+            var_owner = parent
+        self.var_list = []
         _ret = []
         for i, l in enumerate(self.line):
             if type(l) == Value:
-                lc = l.get_listcomp(self, code)
+                lc = l.get_listcomp(var_owner, code)
                 for _l in lc:
                     _t = _l[0]
                     _structure = Structure("for A in V :", [_t.param[1], _t.param[2]])
@@ -189,21 +249,19 @@ class Structure:
                                   [Value("attribute", [Value("var", ["_listcomp_{}".format(_l[1])]), "append"]),
                                    Value("list", [_t.param[0]])])
                         )
-                        _lcif.tojs(self,code)
+                        _lcif = _lcif.tojs(var_owner, code)[0]
                     else:
-                        _structure.line.append(
-                            Value("call",
-                                  [Value("attribute", [Value("var", ["_listcomp_{}".format(_l[1])]), "append"]),
-                                   Value("list", [_t.param[0]])])
-                        )
-                        _structure.tojs(self,code)
+                        _structure.line += Value("call",
+                                                 [Value("attribute",
+                                                        [Value("var", ["_listcomp_{}".format(_l[1])]), "append"]),
+                                                  Value("list", [_t.param[0]])]).tojs(var_owner, code)
+                        _structure = _structure.tojs(var_owner, code)[0]
                     _ret += [
-                        Value("=", [Value("var", ["_listcomp_" + str(_l[1])]), Value("list", [])]),
+                        Value("=", [Value("var", ["_listcomp_" + str(_l[1])]), Value("list", [])]).tojs(var_owner,
+                                                                                                        code)[0],
                         _structure
                     ]
-
-
-            _ret += l.tojs(self, code)
+            _ret += l.tojs(var_owner, code)
         self.line = _ret
         return [self]
 
@@ -854,8 +912,9 @@ def parse_code():
             while i < len(code_str) and code_str[i] != "\n":
                 k += code_str[i]
                 i += 1
-            print(code_str[i:i + 20])
-            show_error("wrong code at: \"{}\"".format(k))
+            if i == len(code_str):
+                break
+            show_error("wrong code at: \"{}\"".format(k), i)
             break
         main.line.append(ps)
     return main
